@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <iostream>
 
 static const char* getError(cgltf_result result, cgltf_data* data)
 {
@@ -206,6 +207,8 @@ static void parseMeshesGltf(cgltf_data* data, std::vector<Mesh>& meshes, std::ve
 
 				s.type = attr.type;
 				s.index = attr.index;
+				s.name = attr.name;
+				s.components = cgltf_num_components(attr.data->type);
 
 				readAccessor(s.data, attr.data);
 

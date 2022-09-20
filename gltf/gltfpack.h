@@ -28,7 +28,8 @@ struct Stream
 	cgltf_attribute_type type;
 	int index;
 	int target; // 0 = base mesh, 1+ = morph target
-
+	const char* name;
+	int components;
 	std::vector<Attr> data;
 };
 

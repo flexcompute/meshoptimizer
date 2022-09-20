@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <iostream>
+
 
 #ifdef __wasi__
 #include <unistd.h>
@@ -878,6 +880,8 @@ static void process(cgltf_data* data, const char* input_path, const char* output
 		printImageStats(views, TextureKind_Normal, "normal");
 		printImageStats(views, TextureKind_Attrib, "attrib");
 	}
+
+	std::cout << "GLB json: " << json << "\n";
 
 	if (report_path)
 	{

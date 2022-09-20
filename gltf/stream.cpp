@@ -7,6 +7,8 @@
 #include <limits.h>
 #include <math.h>
 #include <stdint.h>
+#include <iostream>
+
 
 #include "../src/meshoptimizer.h"
 
@@ -758,6 +760,26 @@ StreamFormat writeVertexStream(std::string& bin, const Stream& stream, const Qua
 			return format;
 		}
 	}
+	else if (stream.type == cgltf_attribute_type_custom)
+	{
+		std::cout << "   custom attribute type: ";
+		std::cout << "stream name: " << stream.name;
+		std::cout << " stream.data.size() " << stream.data.size();
+		std::cout << " stream.components " << stream.components;
+		std::cout << "\n";
+
+		cgltf_type type = cgltf_type_vec4;
+		if (stream.components == 1) {
+			type = cgltf_type_scalar;
+		}
+		else if (stream.components == 3) {
+			type = cgltf_type_vec3;
+		} else {
+			return writeVertexStreamRaw(bin, stream, cgltf_type_vec4, 4);
+		}
+		return writeVertexStreamRaw(bin, stream, type, stream.components);
+	}
+
 	else
 	{
 		return writeVertexStreamRaw(bin, stream, cgltf_type_vec4, 4);
