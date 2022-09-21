@@ -14,9 +14,9 @@ endif()
 project(meshoptimizer VERSION 0.18 LANGUAGES CXX)
 
 option(MESHOPT_BUILD_DEMO "Build demo" OFF)
-option(MESHOPT_BUILD_GLTFPACK "Build gltfpack" OFF)
+option(MESHOPT_BUILD_GLTFPACK "Build gltfpack" ON)
 option(MESHOPT_BUILD_SHARED_LIBS "Build shared libraries" OFF)
-set(MESHOPT_BASISU_PATH "" CACHE STRING "")
+set(MESHOPT_BASISU_PATH "" CACHE STRING "${CMAKE_CURRENT_SOURCE_DIR}/basis_universal")
 
 set(SOURCES
     src/meshoptimizer.h
