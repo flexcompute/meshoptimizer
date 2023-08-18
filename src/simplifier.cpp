@@ -5,6 +5,7 @@
 #include <float.h>
 #include <math.h>
 #include <string.h>
+#include <iostream>
 
 #ifndef TRACE
 #define TRACE 0
@@ -758,7 +759,39 @@ static void rankEdgeCollapses(Collapse* collapses, size_t collapse_count, const 
 
 		float ei = quadricError(qi, vertex_positions[i1]);
 		float ej = quadricError(qj, vertex_positions[j1]);
+		// std:cout << vertex_mach_data[i1] - vertex_mach_data[j1];
 
+		// pick edge direction with minimal error
+		c.v0 = ei <= ej ? i0 : j0;
+		c.v1 = ei <= ej ? i1 : j1;
+		c.error = ei <= ej ? ei : ej;
+	}
+}
+
+static void rankEdgeCollapsesWithMach(Collapse* collapses, size_t collapse_count, const Vector3* vertex_positions, const float* vertex_mach, float mach_bound256, const Quadric* vertex_quadrics, const unsigned int* remap)
+{
+	for (size_t i = 0; i < collapse_count; ++i)
+	{
+		Collapse& c = collapses[i];
+
+		unsigned int i0 = c.v0;
+		unsigned int i1 = c.v1;
+
+		// most edges are bidirectional which means we need to evaluate errors for two collapses
+		// to keep this code branchless we just use the same edge for unidirectional edges
+		unsigned int j0 = c.bidi ? i1 : i0;
+		unsigned int j1 = c.bidi ? i0 : i1;
+
+		const Quadric& qi = vertex_quadrics[remap[i0]];
+		const Quadric& qj = vertex_quadrics[remap[j0]];
+
+		float ei = quadricError(qi, vertex_positions[i1]);
+		float ej = quadricError(qj, vertex_positions[j1]);
+
+		if(fabsf(vertex_mach[i1] - vertex_mach[j1]) >= mach_bound256) {
+			ej = FLT_MAX;
+			ei = FLT_MAX;
+		}
 		// pick edge direction with minimal error
 		c.v0 = ei <= ej ? i0 : j0;
 		c.v1 = ei <= ej ? i1 : j1;
@@ -1412,6 +1445,116 @@ size_t meshopt_simplify(unsigned int* destination, const unsigned int* indices, 
 	if (meshopt_simplifyDebugLoopBack)
 		memcpy(meshopt_simplifyDebugLoopBack, loopback, vertex_count * sizeof(unsigned int));
 #endif
+
+	// result_error is quadratic; we need to remap it back to linear
+	if (out_result_error)
+		*out_result_error = sqrtf(result_error);
+
+	return result_count;
+}
+
+
+size_t meshopt_simplify_mach(unsigned int* destination, const unsigned int* indices, size_t index_count, const float* vertex_positions_data, const float* vertex_mach_data, size_t vertex_count, size_t vertex_positions_stride, size_t target_index_count, float target_error, unsigned int options, float* out_result_error)
+{
+	using namespace meshopt;
+
+	// assert(index_count % 3 == 0);
+	// assert(vertex_positions_stride >= 12 && vertex_positions_stride <= 256);
+	// assert(vertex_positions_stride % sizeof(float) == 0);
+	// assert(target_index_count <= index_count);
+	// assert((options & ~(meshopt_SimplifyLockBorder)) == 0);
+
+	// std::cout << "assa" << sizeof(vertex_mach_data);
+	float min = vertex_mach_data[0];
+	float max = vertex_mach_data[0];
+	for (uint i = 0; i < vertex_count; ++i){
+		min = std::min(min, vertex_mach_data[i]);
+		max = std::max(max, vertex_mach_data[i]);
+	}
+	float mach_bound = max - min;
+
+	meshopt_Allocator allocator;
+
+	unsigned int* result = destination;
+
+	// build adjacency information
+	EdgeAdjacency adjacency = {};
+	prepareEdgeAdjacency(adjacency, index_count, vertex_count, allocator);
+	updateEdgeAdjacency(adjacency, indices, index_count, vertex_count, NULL);
+
+	// build position remap that maps each vertex to the one with identical position
+	unsigned int* remap = allocator.allocate<unsigned int>(vertex_count);
+	unsigned int* wedge = allocator.allocate<unsigned int>(vertex_count);
+	buildPositionRemap(remap, wedge, vertex_positions_data, vertex_count, vertex_positions_stride, allocator);
+
+	// classify vertices; vertex kind determines collapse rules, see kCanCollapse
+	unsigned char* vertex_kind = allocator.allocate<unsigned char>(vertex_count);
+	unsigned int* loop = allocator.allocate<unsigned int>(vertex_count);
+	unsigned int* loopback = allocator.allocate<unsigned int>(vertex_count);
+	classifyVertices(vertex_kind, loop, loopback, vertex_count, adjacency, remap, wedge, options);
+
+	Vector3* vertex_positions = allocator.allocate<Vector3>(vertex_count);
+	rescalePositions(vertex_positions, vertex_positions_data, vertex_count, vertex_positions_stride);
+
+	Quadric* vertex_quadrics = allocator.allocate<Quadric>(vertex_count);
+	memset(vertex_quadrics, 0, vertex_count * sizeof(Quadric));
+
+	fillFaceQuadrics(vertex_quadrics, indices, index_count, vertex_positions, remap);
+	fillEdgeQuadrics(vertex_quadrics, indices, index_count, vertex_positions, remap, vertex_kind, loop, loopback);
+
+	if (result != indices)
+		memcpy(result, indices, index_count * sizeof(unsigned int));
+
+	Collapse* edge_collapses = allocator.allocate<Collapse>(index_count);
+	unsigned int* collapse_order = allocator.allocate<unsigned int>(index_count);
+	unsigned int* collapse_remap = allocator.allocate<unsigned int>(vertex_count);
+	unsigned char* collapse_locked = allocator.allocate<unsigned char>(vertex_count);
+
+	size_t result_count = index_count;
+	float result_error = 0;
+
+	// target_error input is linear; we need to adjust it to match quadricError units
+	float error_limit = target_error * target_error;
+
+	float mach_bound256 = mach_bound / 256;
+	while (result_count > target_index_count)
+	{
+		// note: throughout the simplification process adjacency structure reflects welded topology for result-in-progress
+		updateEdgeAdjacency(adjacency, result, result_count, vertex_count, remap);
+
+		size_t edge_collapse_count = pickEdgeCollapses(edge_collapses, result, result_count, remap, vertex_kind, loop);
+
+		// no edges can be collapsed any more due to topology restrictions
+		if (edge_collapse_count == 0)
+			break;
+
+		// rankEdgeCollapses(edge_collapses, edge_collapse_count, vertex_positions, vertex_quadrics, remap);
+		rankEdgeCollapsesWithMach(edge_collapses, edge_collapse_count, vertex_positions, vertex_mach_data, mach_bound256, vertex_quadrics, remap);
+		
+
+		sortEdgeCollapses(collapse_order, edge_collapses, edge_collapse_count);
+
+		size_t triangle_collapse_goal = (result_count - target_index_count) / 3;
+
+		for (size_t i = 0; i < vertex_count; ++i)
+			collapse_remap[i] = unsigned(i);
+
+		memset(collapse_locked, 0, vertex_count);
+
+		size_t collapses = performEdgeCollapses(collapse_remap, collapse_locked, vertex_quadrics, edge_collapses, edge_collapse_count, collapse_order, remap, wedge, vertex_kind, vertex_positions, adjacency, triangle_collapse_goal, error_limit, result_error);
+
+		// no edges can be collapsed any more due to hitting the error limit or triangle collapse limit
+		if (collapses == 0)
+			break;
+
+		remapEdgeLoops(loop, vertex_count, collapse_remap);
+		remapEdgeLoops(loopback, vertex_count, collapse_remap);
+
+		size_t new_count = remapIndexBuffer(result, result_count, collapse_remap);
+		assert(new_count < result_count);
+
+		result_count = new_count;
+	}
 
 	// result_error is quadratic; we need to remap it back to linear
 	if (out_result_error)

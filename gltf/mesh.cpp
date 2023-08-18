@@ -540,6 +540,10 @@ static void simplifyMesh(Mesh& mesh, float threshold, bool aggressive)
 	if (!positions)
 		return;
 
+	const Stream* mach = getStream(mesh, cgltf_attribute_type_custom);
+	if (!mach)
+		return;
+
 	size_t vertex_count = mesh.streams[0].data.size();
 
 	size_t target_index_count = size_t(double(mesh.indices.size() / 3) * threshold) * 3;
@@ -550,7 +554,7 @@ static void simplifyMesh(Mesh& mesh, float threshold, bool aggressive)
 		return;
 
 	std::vector<unsigned int> indices(mesh.indices.size());
-	indices.resize(meshopt_simplify(&indices[0], &mesh.indices[0], mesh.indices.size(), positions->data[0].f, vertex_count, sizeof(Attr), target_index_count, target_error));
+	indices.resize(meshopt_simplify_mach(&indices[0], &mesh.indices[0], mesh.indices.size(), positions->data[0].f, mach->data[0].f, vertex_count, sizeof(Attr), target_index_count, target_error));
 	mesh.indices.swap(indices);
 
 	// Note: if the simplifier got stuck, we can try to reindex without normals/tangents and retry

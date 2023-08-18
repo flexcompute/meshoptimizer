@@ -339,6 +339,11 @@ enum
 MESHOPTIMIZER_API size_t meshopt_simplify(unsigned int* destination, const unsigned int* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t target_index_count, float target_error, unsigned int options, float* result_error);
 
 /**
+ * For flow360
+ */
+MESHOPTIMIZER_API size_t meshopt_simplify_mach(unsigned int* destination, const unsigned int* indices, size_t index_count, const float* vertex_positions,  const float* vertex_mach, size_t vertex_count, size_t vertex_positions_stride, size_t target_index_count, float target_error, unsigned int options, float* result_error);
+
+/**
  * Experimental: Mesh simplifier (sloppy)
  * Reduces the number of triangles in the mesh, sacrificing mesh appearance for simplification performance
  * The algorithm doesn't preserve mesh topology but can stop short of the target goal based on target error.
@@ -616,6 +621,8 @@ template <typename T>
 inline int meshopt_decodeIndexSequence(T* destination, size_t index_count, const unsigned char* buffer, size_t buffer_size);
 template <typename T>
 inline size_t meshopt_simplify(T* destination, const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t target_index_count, float target_error, unsigned int options = 0, float* result_error = 0);
+template <typename T>
+inline size_t meshopt_simplify_mach(T* destination, const T* indices, size_t index_count, const float* vertex_positions, const float* vertex_mach, size_t vertex_count, size_t vertex_positions_stride, size_t target_index_count, float target_error, unsigned int options = 0, float* result_error = 0);
 template <typename T>
 inline size_t meshopt_simplifySloppy(T* destination, const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t target_index_count, float target_error, float* result_error = 0);
 template <typename T>
@@ -956,6 +963,15 @@ inline size_t meshopt_simplify(T* destination, const T* indices, size_t index_co
 	meshopt_IndexAdapter<T> out(destination, 0, index_count);
 
 	return meshopt_simplify(out.data, in.data, index_count, vertex_positions, vertex_count, vertex_positions_stride, target_index_count, target_error, options, result_error);
+}
+
+template <typename T>
+inline size_t meshopt_simplify_mach(T* destination, const T* indices, size_t index_count, const float* vertex_positions, const float* vertex_mach, size_t vertex_count, size_t vertex_positions_stride, size_t target_index_count, float target_error, unsigned int options, float* result_error)
+{
+	meshopt_IndexAdapter<T> in(0, indices, index_count);
+	meshopt_IndexAdapter<T> out(destination, 0, index_count);
+
+	return meshopt_simplify_mach(out.data, in.data, index_count, vertex_positions, vertex_mach, vertex_count, vertex_positions_stride, target_index_count, target_error, options, result_error);
 }
 
 template <typename T>
